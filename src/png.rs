@@ -2,7 +2,7 @@ use std::{fmt, mem, str::FromStr};
 
 use crate::{chunk::Chunk, chunk_type::ChunkType, Error, Result};
 
-struct Png {
+pub struct Png {
 	chunks: Vec<Chunk>,
 }
 
@@ -44,10 +44,10 @@ impl Png {
 	}
 
 	pub fn as_bytes(&self) -> Vec<u8> {
-		Self::STANDARD_HEADER
+		self.header()
 			.iter()
-			.chain(self.chunks.iter().flat_map(Chunk::data))
 			.copied()
+			.chain(self.chunks().iter().flat_map(Chunk::as_bytes))
 			.collect()
 	}
 }

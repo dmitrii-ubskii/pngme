@@ -1,10 +1,7 @@
 use core::fmt;
 use std::{mem, str, sync::OnceLock};
 
-use crate::{
-	chunk_type::{self, ChunkType},
-	Error, Result,
-};
+use crate::{chunk_type::ChunkType, Error, Result};
 
 pub struct Chunk {
 	chunk_type: ChunkType,
@@ -37,10 +34,10 @@ impl Chunk {
 		Ok(str::from_utf8(self.data())?.to_owned())
 	}
 	pub fn as_bytes(&self) -> Vec<u8> {
-		((self.data.len() as u32).to_be_bytes().iter())
+		(self.length().to_be_bytes().iter())
 			.chain(self.chunk_type.bytes().iter())
 			.chain(self.data.iter())
-			.chain(self.crc.to_be_bytes().iter())
+			.chain(self.crc().to_be_bytes().iter())
 			.copied()
 			.collect()
 	}
