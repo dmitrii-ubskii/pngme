@@ -1,7 +1,10 @@
 use core::fmt;
 use std::{mem, str, sync::OnceLock};
 
-use crate::{chunk_type::ChunkType, Error, Result};
+use crate::{
+	chunk_type::{self, ChunkType},
+	Error, Result,
+};
 
 pub struct Chunk {
 	chunk_type: ChunkType,
@@ -10,7 +13,7 @@ pub struct Chunk {
 }
 
 impl Chunk {
-	fn new(chunk_type: ChunkType, data: Vec<u8>) -> Self {
+	pub fn new(chunk_type: ChunkType, data: Vec<u8>) -> Self {
 		let mut bytes = Vec::with_capacity(chunk_type.bytes().len() + data.len());
 		bytes.extend_from_slice(&chunk_type.bytes());
 		bytes.extend_from_slice(&data);
@@ -18,23 +21,28 @@ impl Chunk {
 
 		Self { chunk_type, data, crc }
 	}
-	fn length(&self) -> u32 {
+	pub fn length(&self) -> u32 {
 		self.data.len() as u32
 	}
-	fn chunk_type(&self) -> &ChunkType {
+	pub fn chunk_type(&self) -> &ChunkType {
 		&self.chunk_type
 	}
-	fn data(&self) -> &[u8] {
+	pub fn data(&self) -> &[u8] {
 		&self.data
 	}
-	fn crc(&self) -> u32 {
+	pub fn crc(&self) -> u32 {
 		self.crc
 	}
-	fn data_as_string(&self) -> Result<String> {
+	pub fn data_as_string(&self) -> Result<String> {
 		Ok(str::from_utf8(self.data())?.to_owned())
 	}
-	fn as_bytes(&self) -> Vec<u8> {
-		self.data.clone()
+	pub fn as_bytes(&self) -> Vec<u8> {
+		((self.data.len() as u32).to_be_bytes().iter())
+			.chain(self.chunk_type.bytes().iter())
+			.chain(self.data.iter())
+			.chain(self.crc.to_be_bytes().iter())
+			.copied()
+			.collect()
 	}
 }
 
