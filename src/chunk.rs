@@ -1,3 +1,126 @@
+use core::fmt;
+use std::{mem, str, sync::OnceLock};
+
+use crate::{chunk_type::ChunkType, Error, Result};
+
+pub struct Chunk {
+	chunk_type: ChunkType,
+	data: Vec<u8>,
+	crc: u32,
+}
+
+impl Chunk {
+	fn new(chunk_type: ChunkType, data: Vec<u8>) -> Self {
+		let mut bytes = Vec::with_capacity(chunk_type.bytes().len() + data.len());
+		bytes.extend_from_slice(&chunk_type.bytes());
+		bytes.extend_from_slice(&data);
+		let crc = compute_crc(&bytes);
+
+		Self { chunk_type, data, crc }
+	}
+	fn length(&self) -> u32 {
+		self.data.len() as u32
+	}
+	fn chunk_type(&self) -> &ChunkType {
+		&self.chunk_type
+	}
+	fn data(&self) -> &[u8] {
+		&self.data
+	}
+	fn crc(&self) -> u32 {
+		self.crc
+	}
+	fn data_as_string(&self) -> Result<String> {
+		Ok(str::from_utf8(self.data())?.to_owned())
+	}
+	fn as_bytes(&self) -> Vec<u8> {
+		self.data.clone()
+	}
+}
+
+fn compute_crc(bytes: &[u8]) -> u32 {
+	static CRC_TABLE: OnceLock<[u32; 256]> = OnceLock::new();
+	let crc_table = CRC_TABLE.get_or_init(|| {
+		let mut buf = [0; 256];
+		buf.iter_mut().enumerate().for_each(|(n, x)| {
+			let mut c = n as u32;
+			for _ in 0..8 {
+				if (c & 1) != 0 {
+					c = 0xedb88320 ^ (c >> 1);
+				} else {
+					c >>= 1;
+				}
+			}
+			*x = c;
+		});
+		buf
+	});
+
+	let mut crc = 0xffffffff;
+	for byte in bytes {
+		crc = crc_table[((crc ^ *byte as u32) & 0xff) as usize] ^ (crc >> 8);
+	}
+	crc ^ 0xffffffff
+}
+
+#[derive(Debug)]
+struct InvalidChunkLength {
+	expected: u32,
+	received: u32,
+}
+impl std::error::Error for InvalidChunkLength {}
+impl fmt::Display for InvalidChunkLength {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "Invalid chunk length: expected {}, got {}", self.expected, self.received)
+	}
+}
+
+#[derive(Debug)]
+struct InvalidChunkCrc {
+	expected: u32,
+	computed: u32,
+}
+impl std::error::Error for InvalidChunkCrc {}
+impl fmt::Display for InvalidChunkCrc {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "Invalid chunk crc: expected 0x{:x}, got 0x{:x}", self.expected, self.computed)
+	}
+}
+
+impl TryFrom<&[u8]> for Chunk {
+	type Error = Error;
+	fn try_from(bytes: &[u8]) -> Result<Self> {
+		let (len, bytes) = bytes.split_at(4);
+		let len = u32::from_be_bytes(len.try_into()?);
+
+		if len as usize + mem::size_of::<(u32, u32)>() != bytes.len() {
+			return Err(InvalidChunkLength {
+				expected: len,
+				received: (bytes.len() - mem::size_of::<(u32, u32)>()) as u32,
+			}
+			.into());
+		}
+
+		let (bytes, crc) = bytes.split_at(bytes.len() - 4);
+		let computed_crc = compute_crc(bytes);
+		let crc = u32::from_be_bytes(crc.try_into()?);
+		if computed_crc != crc {
+			return Err(InvalidChunkCrc { expected: crc, computed: computed_crc }.into());
+		}
+
+		let (chunk_type, chunk_data) = bytes.split_at(4);
+		let chunk_type = ChunkType::try_from(<[u8; 4]>::try_from(chunk_type)?)?;
+
+		Ok(Self::new(chunk_type, chunk_data.to_owned()))
+	}
+}
+
+impl fmt::Display for Chunk {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(&self.data_as_string().map_err(|_| fmt::Error)?)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use std::str::FromStr;
